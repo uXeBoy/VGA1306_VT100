@@ -1,0 +1,10 @@
+set_io wclk        51
+set_io d0          52
+set_io dc          53
+set_io cs          54
+set_io rr          25
+set_io rg          24
+set_io rb          20
+set_io hs          19
+set_io vs          18
+set_io clk25       15
