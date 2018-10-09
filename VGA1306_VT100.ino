@@ -38,7 +38,8 @@ void scrolldn(){
 
 void handle_escape(){
   c = blocking_read();
-  byte x,val;
+  int x,val;
+  int val2 = 0;
   if(c == 'D'){ //Move down one line
     cy++;
     if(cy > (ROWS-1)){
@@ -46,19 +47,22 @@ void handle_escape(){
       cy = ROWS-1;
     }
   }
-  if(c == 'M'){ //Move up one line
+  else if(c == 'M'){ //Move up one line
     cy--;
     if(cy < 0){cy = 0;}
   }
-  if(c == 'E'){ //Move to next line
+  else if(c == 'E'){ //Move to next line
     cy++;
-    cx=0;
+    cx = 0;
     if(cy > (ROWS-1)){
       scrollup();
       cy = ROWS-1;
     }
   }
-  if(c == '['){
+  else if(c == '(' || c == ')'){ //Character set
+    c = blocking_read();
+  }
+  else if(c == '['){
     c = blocking_read();
     val = 255;
     if(isdigit(c)){
@@ -72,20 +76,25 @@ void handle_escape(){
     }
     switch(c){
       case ';':
-        int val2;
-        val2 = blocking_read() - '0';
         c = blocking_read();
         if(isdigit(c)){
-          val2 *= 10;
-          val2 += c - '0';
+          val2 = c - '0';
           c = blocking_read();
+          if(isdigit(c)){
+            val2 *= 10;
+            val2 += c - '0';
+            c = blocking_read();
+          }
         }
         if(c == 'f' || c == 'H'){ //Move cursor to screen location v,h
-          cy = val-1; cx = val2-1;
-          if(cx > (COLUMNS-1)){cx = COLUMNS-1;}
-          if(cx < 0){cx = 0;}
-          if(cy > (ROWS-1)){cy = ROWS-1;}
-          if(cy < 0){cy = 0;}
+          if(val == 255){cy = 0; cx = 0;}
+          else{
+            cy = val-1; cx = val2-1;
+            if(cx > (COLUMNS-1)){cx = COLUMNS-1;}
+            if(cx < 0){cx = 0;}
+            if(cy > (ROWS-1)){cy = ROWS-1;}
+            if(cy < 0){cy = 0;}
+          }
         }
         break;
       case 'A':cy-=(val==255)?1:val; if(cy < 0){cy = 0;} break; //Move cursor up n lines
@@ -93,26 +102,27 @@ void handle_escape(){
       case 'C':cx+=(val==255)?1:val; if(cx > (COLUMNS-1)){cx = COLUMNS-1;} break; //Move cursor right n lines
       case 'D':cx-=(val==255)?1:val; if(cx < 0){cx = 0;} break; //Move cursor left n lines
       case 'H':cx = 0; cy = 0; break; //Move cursor to upper left corner
+      case 'd':cy = val-1; break; //Move to line n
       case 'K':
-        if(val == 1){ //Clear line from cursor left
-          for(x = cx;x;x--){
-            TEXT(x,cy) = 0x20;
-          }
-        }
         if(val == 0 || val == 255){ //Clear line from cursor right
           for(x = cx;x < COLUMNS;x++){
             TEXT(x,cy) = 0x20;
           }
         }
+        if(val == 1){ //Clear line from cursor left
+          for(x = cx;x >= 0;x--){
+            TEXT(x,cy) = 0x20;
+          }
+        }
         if(val == 2){
           for(x = 0;x < COLUMNS;x++){ //Clear entire line
-            TEXT(x, cy) = 0x20;
+            TEXT(x,cy) = 0x20;
           }
         }
         break;
       case 'J':
         if(val == 0 || val == 255){ //Clear screen from cursor down
-          for(int i=((cy*COLUMNS)+cx);i < BUFFERSIZE;i++){
+          for(int i = ((cy*COLUMNS)+cx);i < BUFFERSIZE;i++){
             text[i] = 0x20;
           }
         }
@@ -130,11 +140,11 @@ void handle_escape(){
         if(val == 4){
           cur_atr |= UNDERLINE;
         }
-        if(val == 7){
-          cur_atr |= INVERSE;
-        }
         if(val == 5){
           cur_atr |= BLINK;
+        }
+        if(val == 7){
+          cur_atr |= INVERSE;
         }
         break;
     }
@@ -145,17 +155,20 @@ void poll_serial(){ //We need to do this often to avoid dropping bytes in the ti
   while(Serial.available()){ //Check if there is incoming serial and if there is, handle it
     c = Serial.read();
     if(c == 27){handle_escape(); continue;} //Escape
-    if(c == '\n' || cx > (COLUMNS-1)){ //Line Feed
-      cx = 0; cy ++;
+    if(c == '\n' || cx > (COLUMNS-1)){ //Line Feed, Ctrl-J
+      cx = 0; cy++;
       if(cy > (ROWS-1)){
         scrollup();
         cy = ROWS-1;
       }
     }
-    if(c == '\r'){cx = 0;} //Carriage Return
-    if(c == 8 && cx > 0){cx--;} //Back Space
-    if(c == '\t' && cx < (COLUMNS-9)){cx = cx + 8;} //Tab
-    if(c > 31){
+    else if(c == '\r'){cx = 0;} //Carriage Return, Ctrl-M
+    else if(c == '\t' && cx < (COLUMNS-9)){cx = cx+8;} //Tab, Ctrl-I
+    else if(c == '\b' && cx > 0){ //Back Space, Ctrl-H
+      cx--;
+      text[(cy * COLUMNS) + cx] = 0x20;
+    }
+    else if(c > 31 && c < 127){ //ASCII printable characters
       text[(cy * COLUMNS) + cx] = c;
 //    attrib[(cy * (COLUMNS/2)) + cx/2] &= cx&1?0xF0:0x0F;
 //    attrib[(cy * (COLUMNS/2)) + cx/2] |= cx&1?cur_atr:cur_atr<<4;
